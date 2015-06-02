@@ -3,6 +3,9 @@
 
 using System;
 using System.IO;
+using System.Linq;
+using System.Xml.Linq;
+using System.Xml;
 
 namespace NuGet.Configuration
 {
@@ -113,6 +116,43 @@ namespace NuGet.Configuration
         public static bool DeleteConfigValue(ISettings settings, string key)
         {
             return settings.DeleteValue(ConfigSection, key);
+        }
+
+        public static void InitNuGetConfig(IMachineWideSettings machineWideSettings)
+        {
+            var settings = machineWideSettings.Settings;
+
+#if !DNXCORE50
+            var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+#else
+            string appDataPath = Environment.GetEnvironmentVariable("AppData");
+#endif
+            if (!String.IsNullOrEmpty(appDataPath))
+            {
+                var defaultSettingsFilePath = Path.Combine(
+                        appDataPath, "NuGet", Settings.DefaultSettingsFileName);
+                if(!File.Exists(defaultSettingsFilePath))
+                {
+                    var document = new XDocument(new XElement("configuration"));
+                    var sectionName = XmlConvert.EncodeLocalName(ConfigurationContants.DisabledPackageSources);
+                    var section = new XElement(sectionName);
+                    XElementUtility.AddIndented(document.Root, section);
+
+                    foreach (var setting in settings)
+                    {
+                        var values = setting.GetSettingValues(ConfigurationContants.PackageSources, isPath: true);
+
+                        foreach (var value in values)
+                        {
+                            var element = new XElement("add");
+                            element.SetAttributeValue(ConfigurationContants.KeyAttribute, value.Key);
+                            element.SetAttributeValue(ConfigurationContants.ValueAttribute, true);
+                            XElementUtility.AddIndented(section, element);
+                        }                        
+                    }
+                    FileSystemUtility.AddFile(defaultSettingsFilePath, document.Save);
+                }
+            }
         }
     }
 }
